@@ -1,14 +1,24 @@
 name: keep-swarm-studio-alive
 
+# One run watches the Studio for ~5.5 hours (checking every 5 min), then starts the next run.
+# The hourly cron only matters if that chain ever breaks. Public repo: Actions minutes are free.
 on:
   schedule:
-    - cron: "*/30 * * * *"   # every 30 min (~1,440 min/month, inside the 2,000 free private-repo minutes)
+    - cron: "17 * * * *"
   workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
 
 jobs:
   restart:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 345
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -19,8 +29,15 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python restart_studio.py
         env:
+          LOOP_MINUTES: "330"
+          CHECK_EVERY: "300"
           LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
           LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
           LIGHTNING_TEAMSPACE: ${{ secrets.LIGHTNING_TEAMSPACE }}
           LIGHTNING_ORG: ${{ secrets.LIGHTNING_ORG }}
           LIGHTNING_USER: ${{ secrets.LIGHTNING_USER }}
+      - name: hand over to the next run
+        if: always()
+        run: gh workflow run keep-studio-alive.yml --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
