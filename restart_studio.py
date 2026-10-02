@@ -13,6 +13,7 @@ This works even if something on the Studio ignores the rule.
 """
 import os
 import sys
+import threading
 import time
 
 from lightning_sdk import Machine, Studio
@@ -22,6 +23,7 @@ where = {k: os.environ[f"LIGHTNING_{k.upper()}"] for k in ("teamspace", "org", "
 studio = Studio(name=os.environ.get("SWARM_STUDIO", "swarm"), create_ok=False, **where)
 end = time.time() + 60 * int(os.environ.get("LOOP_MINUTES", "0"))
 every = int(os.environ.get("CHECK_EVERY", "300"))
+START_WAIT = 120  # seconds to wait for start() before carrying on with the watch
 alarms = []
 
 while True:
@@ -29,8 +31,11 @@ while True:
         status = studio.status
         print(f"{time.strftime('%H:%M:%S')} studio status: {status.name}", flush=True)
         if status in (Status.Stopped, Status.Completed, Status.Failed):
-            studio.start(Machine.CPU)
-            print("started on the free CPU machine", flush=True)
+            # studio.start() can block for a long time; run it in the background so the watch never hangs
+            t = threading.Thread(target=lambda: studio.start(Machine.CPU), daemon=True)
+            t.start()
+            t.join(START_WAIT)
+            print("start requested on the free CPU machine" + ("" if not t.is_alive() else f" (still starting after {START_WAIT}s)"), flush=True)
         elif status == Status.Running:
             machine, spot = studio.machine, bool(getattr(studio, "interruptible", False))
             if machine != Machine.CPU or spot:
